@@ -5,7 +5,9 @@
 use crate::config::{Config, FlowType, Origin};
 use crate::defaults;
 use crate::rng::NoiseRng;
-use crate::text::{TextOptions, prepare_text_prompt, split_into_best_sentences};
+use crate::text::{
+    TextOptions, apply_pronunciation_overrides, prepare_text_prompt, split_into_best_sentences,
+};
 use crate::tokenizer::{SharedTokenizer, Tokenizer};
 use crate::weights::{SafetensorsFile, WeightFiles};
 use anyhow::{Context, Result, bail};
@@ -383,9 +385,11 @@ impl<Q: CpuBackend> TtsModel<Q> {
     ) -> Result<()> {
         let frames_after_eos = frames_after_eos.or(self.config.model_recommended_frames_after_eos);
         // This is a very simplistic way of handling long texts, as in the Python package.
+        let spoken_text =
+            apply_pronunciation_overrides(text_to_generate, &self.config.pronunciation_overrides);
         let chunks = split_into_best_sentences(
             self.tokenizer.as_ref(),
-            text_to_generate,
+            spoken_text.as_ref(),
             max_tokens,
             &self.text_options,
         )?;

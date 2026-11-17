@@ -5,7 +5,33 @@
 //! regrouped into chunks that fit `max_tokens`.
 
 use anyhow::{Result, bail};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
+
+/// Speech-only word aliases. An empty table preserves the original input without copying.
+/// Replacements are applied once, so an alias cannot recursively expand another alias.
+pub fn apply_pronunciation_overrides<'a>(
+    text: &'a str,
+    overrides: &BTreeMap<String, String>,
+) -> Cow<'a, str> {
+    if overrides.is_empty() {
+        return Cow::Borrowed(text);
+    }
+    let aliases: BTreeMap<_, _> = overrides
+        .iter()
+        .map(|(word, spoken)| (word.to_lowercase(), spoken.as_str()))
+        .collect();
+    let mut result = String::with_capacity(text.len());
+    for segment in text.split_inclusive(|c: char| !c.is_alphanumeric() && c != '_') {
+        let word_end = segment
+            .find(|c: char| !c.is_alphanumeric() && c != '_')
+            .unwrap_or(segment.len());
+        let (word, punctuation) = segment.split_at(word_end);
+        result.push_str(aliases.get(&word.to_lowercase()).copied().unwrap_or(word));
+        result.push_str(punctuation);
+    }
+    Cow::Owned(result)
+}
 
 pub trait TextTokenizer {
     fn encode(&self, text: &str) -> Result<Vec<u32>>;
@@ -370,6 +396,30 @@ mod tests {
     use super::*;
 
     /// One token per character, with a leading space marker like SentencePiece.
+    #[test]
+    fn pronunciation_aliases_preserve_boundaries_case_and_punctuation() {
+        let aliases = BTreeMap::from([
+            ("TRUEOS".into(), "True O S".into()),
+            ("CPU".into(), "C P U".into()),
+        ]);
+        assert_eq!(
+            apply_pronunciation_overrides(
+                "TRUEOS, TrueOS, trueos: CPU/cpu's CPU2 my_cpu scpu CPUé. Grüße!",
+                &aliases,
+            ),
+            "True O S, True O S, True O S: C P U/C P U's CPU2 my_cpu scpu CPUé. Grüße!"
+        );
+        let aliases = BTreeMap::from([("a".into(), "cpu".into()), ("cpu".into(), "C P U".into())]);
+        assert_eq!(
+            apply_pronunciation_overrides("a cpu", &aliases),
+            "cpu C P U"
+        );
+        assert!(matches!(
+            apply_pronunciation_overrides("unchanged", &BTreeMap::new()),
+            Cow::Borrowed("unchanged")
+        ));
+    }
+
     struct CharTokenizer;
 
     impl TextTokenizer for CharTokenizer {

@@ -191,6 +191,9 @@ pub struct Config {
     /// Per-character rewrites applied before tokenization, `None` or "" deletes.
     #[serde(default)]
     pub replace_characters: BTreeMap<String, Option<String>>,
+    /// Whole-word speech aliases, matched case-insensitively before chunking.
+    #[serde(default)]
+    pub pronunciation_overrides: BTreeMap<String, String>,
     #[serde(default)]
     pub model_recommended_frames_after_eos: Option<usize>,
     #[serde(default = "default_temperature")]
@@ -346,6 +349,18 @@ impl Config {
                 bail!("string keys in translate table must be of length 1, got {key:?}")
             }
         }
+        let mut aliases = std::collections::HashSet::new();
+        for (key, replacement) in &self.pronunciation_overrides {
+            if key.is_empty() || !key.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                bail!("pronunciation override keys must be single words, got {key:?}")
+            }
+            if replacement.trim().is_empty() {
+                bail!("pronunciation override for {key:?} must not be empty")
+            }
+            if !aliases.insert(key.to_lowercase()) {
+                bail!("duplicate case-insensitive pronunciation override for {key:?}")
+            }
+        }
         Ok(())
     }
 
@@ -455,6 +470,21 @@ mod tests {
     fn english_with(extra: &str) -> Result<Config> {
         let (_, yaml) = CONFIGS.iter().find(|(name, _)| *name == "english").unwrap();
         Config::parse(&format!("{yaml}\n{extra}\n"))
+    }
+
+    #[test]
+    fn pronunciation_aliases_are_optional_and_validated() {
+        assert!(english_with("").unwrap().pronunciation_overrides.is_empty());
+        let config = english_with("pronunciation_overrides: {CPU: 'C P U'}").unwrap();
+        assert_eq!(config.pronunciation_overrides["CPU"], "C P U");
+        for invalid in [
+            "{'': 'empty key'}",
+            "{'two words': 'invalid key'}",
+            "{CPU: '   '}",
+            "{CPU: 'C P U', cpu: 'processor'}",
+        ] {
+            assert!(english_with(&format!("pronunciation_overrides: {invalid}")).is_err());
+        }
     }
 
     #[test]

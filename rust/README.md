@@ -19,6 +19,29 @@ not.
 
 ## Differences with the Python CLI
 
+### Optional pronunciation dictionary (local Rust extension)
+
+Add `pronunciation_overrides` to a custom model YAML selected with `--config`:
+
+```yaml
+pronunciation_overrides:
+  TRUEOS: "True O S"
+  CPU: "C P U"
+```
+
+Entries match whole words case-insensitively (`CPU` and `cpu` both match), before
+tokenization and sentence chunking. Other words and punctuation are preserved;
+`CPU2` and `my_cpu` do not match `CPU`. Keys contain letters, digits or underscores;
+empty values and duplicate case-insensitive keys are rejected. Replacements are
+applied once. The dictionary defaults to empty and affects only synthesized text,
+in both CLI generation and server requests. Letter names follow the selected
+language model; do not apply an English spelling dictionary to every language.
+
+This is a local Rust extension, not SSML or a phoneme API. The Python CLI does not
+accept this additional YAML field. Existing language configs are unchanged.
+
+### Backend differences
+
 - Runs on the CPU only (`--device cpu`), and `--quantize` uses xn's int8 weights.
 
 - `serve --reload` is accepted and ignored. The server answers `/`, `/health` and `/tts` as the
